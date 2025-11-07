@@ -1,0 +1,62 @@
+{
+    "tools": [
+        {
+            "name": "execute_command",
+            "description": "Execute a command and return its output. Commands run in a persistent shell session by default. Use newSession: true to run in a new shell instance.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string"
+                    },
+                    "newSession": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "command"
+                ],
+                "additionalProperties": false,
+                "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+        },
+        {
+            "name": "execute_ssh_command",
+            "description": "Execute a command on a remote server via SSH. Commands run in a persistent SSH session by default. Use newSession: true to run in a new session.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "host": {
+                        "type": "string"
+                    },
+                    "port": {
+                        "type": "number",
+                        "default": 22
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "type": "string"
+                    },
+                    "privateKey": {
+                        "type": "string"
+                    },
+                    "command": {
+                        "type": "string"
+                    },
+                    "newSession": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "host",
+                    "username",
+                    "command"
+                ],
+                "additionalProperties": false,
+                "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+        }
+    ]
+}
