@@ -1,0 +1,14 @@
+        const createTableQuery = `
+            CREATE TABLE users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(50) UNIQUE NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                token VARCHAR(255) UNIQUE NOT NULL,
+                token_oauth VARCHAR(150) UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX idx_users_token ON users(token);
+            `;
+
+client.query(createTableQuery);

@@ -1,77 +1,132 @@
 import { WebSocketServer } from "ws";
-interface UsersStatus{
+import { Observable, Subject } from 'rxjs';
+import crypto  from 'crypto';
+export interface UsersStatus {
     name: string,
-    ws: any,
+    ws: Ws,
+    location?: number[],
+    id: string,
     status: string
+}
+export interface OnMessage  {ws: Ws, data: any};
+export class Ws {
+    constructor(public readonly ws: any, public readonly codeWs: string) {}
+    send(data: any) {
+        console.log(JSON.stringify(data), "data123")
+        this.ws.send(JSON.stringify(data));
+    }
+
+    userSend(data: any) {
+        data = JSON.stringify(data);
+    }
 }
 export class WebSocketService {
 
     private wss! : WebSocketServer;
     listUsers: UsersStatus[] = [];
+    private readonly _onMessage = new Subject<OnMessage>();
+    //для обычных запросов
+    onMessage!: (type: string, fun: (e: OnMessage) => void) => void;
+    //Запрос с ответом 
+    onMessageAjax!: (type: string,  fun: (e: OnMessage,  brake: Observable<boolean>) =>  Promise<Object>) => void;
     constructor () {
-        this.init();
+        //this.init();
     }
 
     async init() {
+        this.onMessage = function (type: string, fun: (e: OnMessage) => void) {
+            this._onMessage.subscribe((e: OnMessage) => {
+                
+                try {
+                    if(e.data.type === type){
+                        e.data = e.data.message;
+                        fun(e);
+                    }
+                } catch (err) {
+                    console.log("произошла ошибка: ",e.data, err );
+                }
+            })
+        }
+
+        this.onMessageAjax = async function (type: string, fun: (e: OnMessage, brake: Observable<boolean>) => Promise<any> | any) {
+            this._onMessage.subscribe(async (e: OnMessage) => {
+                const brake = new Subject<boolean>();
+                let code: string | null = null;
+                let b = true;
+                if(e.data.type === type){
+                   if(code && code == e.data.code) {
+                        if(e.data.errorCode){
+                            brake.next(true);
+                            b =  false;
+                        }
+                   }else {
+                        code = e.data.code;
+                        e.data = e.data.message;
+                        try {
+                            const message = await fun(e, brake.asObservable());
+                            if(b) {
+                                e.ws.send({type, message, code, to: 'server'});
+                            }
+                        
+                        }catch (err){
+
+                        }
+                  
+                   } 
+                   
+                }
+                code = null;
+                b = true;
+            });
+        }
+
+
         this.wss = new WebSocketServer({ port: 3200 });
         this.wss.on('connection', (ws: WebSocketServer) => {
-            let nameUser: any = null;
+            const codeWs = crypto.randomUUID();
+            //let userId: any = null;
             ws.on("close", ()=> {
                 console.log("close");
-                if(nameUser) {
-                    const index = this.listUsers.findIndex(user => user.name === nameUser);
-                    if (index !== -1) {
-                        this.listUsers.splice(index, 1);
-                        for(let user of this.listUsers) {
-                            user.ws.send(JSON.stringify({type: 'user_list', message: this.listUsers.map( (e) => {return {name: e.name, status: e.status}})}));
-                        }
-                    }
-                }
+                this.clearUser (codeWs);
             });
             ws.on('message', async (message: string) => {
+            
              console.log("message", message+ "");
              try {
-                const data = JSON.parse(message);
-                if(data.type === 'newName') {
-                    console.log('newName', data);
-                    this.listUsers.push({name: data.message, ws: ws, status: 'online'});
-                    nameUser = data.message;
-                    for(let user of this.listUsers) {
-                        user.ws.send(JSON.stringify({type: 'user_list', message: this.listUsers.map( (e) => {return {name: e.name, status: e.status}})}));
-                    }
-                }
-                //исходящий вызов
-                if(data.type === 'outgoing_call') {
-                    console.log('call',  data.message);
-                    const find = this.listUsers.find(e=> e.name === data.message.user);
-                    if(find) {
-                        console.log('call find', find.name);
-                        find.ws.send(JSON.stringify({type: 'outgoing_call', message: {offer: data.message.offer, user: nameUser}}));
-                    }
-                }
-                //входящий
-                if(data.type === 'incoming_call') {
-                  const find = this.listUsers.find(e=> e.name === data.message.user);
-                  if(find) {
-                        find.ws.send(JSON.stringify({type: 'incoming_call', message: {offer: data.message.offer, user: nameUser}}));
-                  }
-                }
-
-                //icecandidate
-                if(data.type === 'icecandidate') {
-                  const find = this.listUsers.find(e=> e.name === data.message.user);
-                  if(find) {
-                    find.ws.send(JSON.stringify({type: 'icecandidate', message: {candidate: data.message.candidate, user: nameUser}}));
-                  }
-                }
+                this._onMessage.next({ws: new Ws(ws, codeWs), data: JSON.parse(message)});
 
              } catch (e) {
                 console.log("ошибка",e)
              }
-             
-             //ws.send("hello, i server");
 
             });
         });
+    }
+
+    
+    clearUser (codeWs: string) {
+        if(codeWs) {
+            const index = this.listUsers.findIndex(user => user.ws.codeWs === codeWs);
+            if (index !== -1) {
+                this.listUsers.splice(index, 1);
+                this.reloadUserList();
+            }
+        }
+    }
+
+    reloadUserList() {
+        for(let user of this.listUsers) {
+            let listFilter = this.listUsers.filter( (e) => {
+                if(user.location){
+                    if(user.id !== e.id) {
+                        return e;
+                    }
+                }
+            });
+            console.log(listFilter, "listFilter");
+            user.ws.send({type: 'user_list', message: listFilter.map(e => { return {
+                    name: e.name, status: e.status, id: e.id, location: e.location
+            }})});  
+        }
     }
 }
