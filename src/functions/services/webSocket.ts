@@ -17,7 +17,7 @@ export class Ws {
         this.ws.send(JSON.stringify({type: type, message: data}));
     }
 
-    async sendAjax(type: string, message: any, timeConnect: number = 100000) {
+    sendAjax(type: string, message: any, timeConnect: number = 100000): {promise: Promise<any>, stop: () => void} {
         
         this.code = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
             const r = Math.random() * 16 | 0;
@@ -25,7 +25,6 @@ export class Ws {
             return v.toString(16);
         });
         this.ws.send(JSON.stringify({message, type, code: this.code, timeConnect, to: 'front'}));
-        
         const p =  new Promise((resolve) => {
             this.responseAjax.subscribe((e) => {
             if (e.code == this.code) {
@@ -37,21 +36,16 @@ export class Ws {
             }
             })
         });
-        return p;
+        
+        return {promise: p, stop: () => {
+            this.ws.send(JSON.stringify({message, type, code: this.code, timeConnect, to: 'front', errorCode: 'stop'}));
+      }};
         
     }
 
     stop () {
         this.responseAjax.next({code: this.code, errorCode: 'stop'});
     }
-
-    // userSend(data: any, id: string) {
-    //     data = JSON.stringify(data);
-    //     const userFilter = this.listUser.filter(e => e.id == id);
-    //     for(let user of userFilter) {
-    //         user.ws.send(data);
-    //     }
-    // }
 }
 export class WebSocketService {
 
@@ -84,34 +78,42 @@ export class WebSocketService {
         }
 
         this.onMessageAjax = async function (type: string, fun: (e: OnMessage, brake: Observable<boolean>) => Promise<any> | any) {
+            const brakeCode: {[key: string]:{brake:  Subject<boolean>, b: boolean}} = {} //{[key => ]}
             this._onMessage.subscribe(async (e: OnMessage) => {
-                const brake = new Subject<boolean>();
-                let code: string | null = null;
-                let b = true;
+                const code = e.data.code;
                 if(e.data.type === type){
-                   if(code && code == e.data.code) {
+                   
+                   if(brakeCode[code]) {
                         if(e.data.errorCode){
-                            brake.next(true);
-                            b =  false;
+                            brakeCode[code].brake.next(true);
+                            brakeCode[code].b =  false;
                         }
                    }else {
-                        code = e.data.code;
-                        e.data = e.data.message;
+                        //code = e.data.code;
+                        brakeCode[code] = {brake: new Subject<boolean>(), b: true};
+                        console.log(" brakeCode[e.data.code]",  brakeCode[e.data.code])
+                        //e.data = e.data.message;
                         try {
-                            const message = await fun(e, brake.asObservable());
-                            if(b) {
-                                e.ws.ws.send(JSON.stringify({type, message, code, to: 'server'}));
+                            const b = brakeCode[code];
+                            console.log(" brakeCode[e.data.code]xxxxx",  brakeCode[code], code, b)
+                            if(b){
+                                const message = await fun({...e, data: e.data.message}, b.brake.asObservable());
+                                if(brakeCode[code].b) {
+                                    e.ws.ws.send(JSON.stringify({type, message, code: code, to: 'server'}));
+                                }
+                            } else {
+                                throw new Error("хуйня какая то")
                             }
                         
-                        }catch (err){
-
+                        } catch (err){
+                            console.log("errror ", err);
+                            e.ws.ws.send(JSON.stringify({type, code: code, to: 'server', errorCode: 'stop'}));
                         }
                   
                    } 
                    
                 }
-                code = null;
-                b = true;
+                delete brakeCode[code];
             });
         }
 
